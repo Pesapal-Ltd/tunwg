@@ -16,8 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ntnj/tunwg"
-	"github.com/ntnj/tunwg/internal"
+	"tunwg"
+	"tunwg/internal"
+
 	"golang.org/x/crypto/bcrypt"
 )
 

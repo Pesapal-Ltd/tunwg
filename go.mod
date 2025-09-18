@@ -1,8 +1,6 @@
-module github.com/ntnj/tunwg
+module tunwg
 
-go 1.22.0
-
-toolchain go1.22.4
+go 1.24.4
 
 require (
 	github.com/armon/go-proxyproto v0.1.0

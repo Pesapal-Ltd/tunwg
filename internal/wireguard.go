@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"net"
 	"net/netip"
 	"os"
@@ -15,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tunwg/log"
 
 	"github.com/tailscale/wireguard-go/conn"
 	"github.com/tailscale/wireguard-go/device"
@@ -109,7 +110,7 @@ func BackgroundLogger(d time.Duration) {
 		for _, peer := range dev.Peers {
 			msg += fmt.Sprintf("key:%v,ep:%v,time:%v\n", peer.PublicKey, peer.Endpoint, peer.LastHandshakeTime)
 		}
-		log.Printf("Peers:\n%v", msg)
+		log.LogInfo(fmt.Sprintf("Peers:\n%v", msg))
 	}
 }
 

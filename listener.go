@@ -18,8 +18,9 @@ import (
 	"sync"
 	"time"
 
+	"tunwg/internal"
+
 	"github.com/armon/go-proxyproto"
-	"github.com/ntnj/tunwg/internal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 

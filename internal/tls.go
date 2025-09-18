@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"net/http"
@@ -21,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"tunwg/log"
 
 	"golang.org/x/crypto/acme"
 	"golang.org/x/crypto/acme/autocert"
@@ -44,7 +45,7 @@ func GetTLSConfig() *tls.Config {
 			if cert, err := le.GetCertificate(hello); err == nil {
 				return cert, nil
 			} else {
-				log.Printf("error getting cert from lets encrypt: %v", err)
+				log.LogError("error getting cert from lets encrypt", err)
 			}
 			zsMu.Lock()
 			defer zsMu.Unlock()
@@ -87,7 +88,7 @@ func getZeroSSLEab() (*acme.ExternalAccountBinding, error) {
 	if !os.IsNotExist(err) {
 		return nil, err
 	}
-	log.Println("tunwg: fetching eab from zerossl")
+	log.LogInfo("tunwg: fetching eab from zerossl")
 	zerosslApi := "https://api.zerossl.com/acme/eab-credentials-email"
 	form := url.Values{"email": {SSLCertificateEmail()}}
 	resp, err := http.Post(zerosslApi, "application/x-www-form-urlencoded", strings.NewReader(form.Encode()))
@@ -112,7 +113,7 @@ func getZeroSSLEab() (*acme.ExternalAccountBinding, error) {
 	if !result.Success {
 		return nil, fmt.Errorf("failed zerossl eab: %v", string(respBytes))
 	}
-	log.Printf("tunwg: fetched zerossl credentials: %v", result.EABKID)
+	log.LogInfo(fmt.Sprintf("tunwg: fetched zerossl credentials: %v", result.EABKID))
 	res := &acme.ExternalAccountBinding{
 		KID: result.EABKID,
 	}
@@ -124,7 +125,7 @@ func getZeroSSLEab() (*acme.ExternalAccountBinding, error) {
 	if fileBytes, err := json.Marshal(res); err == nil {
 		err := os.WriteFile(path, fileBytes, 0o600)
 		if err != nil {
-			log.Printf("Failed to persist eab: %v", err)
+			log.LogError("failed to persist eab", err)
 		}
 	}
 	return res, nil
