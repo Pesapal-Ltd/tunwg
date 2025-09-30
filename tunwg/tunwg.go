@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -18,6 +17,7 @@ import (
 
 	"tunwg"
 	"tunwg/internal"
+	"tunwg/log"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -28,6 +28,12 @@ var limitOncePerIPFlag = flag.Duration("limit_once_on_ip", 0, "Only ask for basi
 var portFlag = flag.Uint("p", 0, "port to forward")
 
 func main() {
+	err := log.NewLogger()
+	if err != nil {
+		fmt.Printf("failed to initialize logger %v", err)
+		os.Exit(1)
+	}
+	
 	if os.Getenv("TUNWG_RUN_SERVER") == "true" {
 		tunwgServer()
 		return
@@ -45,7 +51,7 @@ func main() {
 	}
 	flag.Parse()
 	if (*forwardFlag == "") == (*portFlag == 0) {
-		log.Fatalf("Specify one of port to forward (-p) or urls to forward (--forward)")
+		log.LogFatal("Specify one of port to forward (-p) or urls to forward (--forward)")
 	}
 	if internal.TestOnlyRunLocalhost() {
 		enableLocahostServerTesting()
@@ -64,19 +70,19 @@ func main() {
 	for _, p := range ps {
 		l, err := tunwg.NewListener(p)
 		if err != nil {
-			log.Fatalf("failed to connect: %v", err)
+			log.LogFatal(fmt.Sprintf("failed to connect: %v", err))
 		}
 		turl := internal.Must(url.Parse(p))
 		rp := &httputil.ReverseProxy{
 			Rewrite: func(pr *httputil.ProxyRequest) {
-				log.Printf("[%v] %v %v%v %v %v", time.Now(), pr.In.Method, pr.In.Host, pr.In.URL.Path, pr.In.RemoteAddr, pr.In.UserAgent())
+				log.LogInfo(fmt.Sprintf("[%v] %v %v%v %v %v", time.Now(), pr.In.Method, pr.In.Host, pr.In.URL.Path, pr.In.RemoteAddr, pr.In.UserAgent()))
 				pr.Out.URL.Scheme = turl.Scheme
 				pr.Out.URL.Host = turl.Host
 				// TODO: support base path
 				pr.SetXForwarded()
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-				log.Printf("http: proxy error: %v", err)
+				log.LogInfo(fmt.Sprintf("http: proxy error: %v", err))
 				w.WriteHeader(http.StatusBadGateway)
 				w.Write([]byte("Invalid response from forwarded server"))
 			},
@@ -93,7 +99,7 @@ func main() {
 		g.Add(1)
 		go func() {
 			defer g.Done()
-			log.Fatalf("proxy error: %v", srv.Serve(l))
+			log.LogFatal(fmt.Sprintf("proxy error: %v", srv.Serve(l)))
 		}()
 	}
 	g.Wait()
@@ -136,7 +142,7 @@ func authValidator() func(username, password string) bool {
 	}
 	ls := strings.SplitN(limit, ":", 2)
 	if len(ls) != 2 {
-		log.Fatalf("invalid value for --limit. Use htpasswd format")
+		log.LogFatal("invalid value for --limit. Use htpasswd format")
 	}
 	euser, epass := ls[0], ls[1]
 	if strings.HasPrefix(epass, "$2") {
@@ -144,7 +150,7 @@ func authValidator() func(username, password string) bool {
 			return username == euser && bcrypt.CompareHashAndPassword([]byte(epass), []byte(password)) == nil
 		}
 	}
-	log.Println("tunwg: using plain text password")
+	log.LogInfo("tunwg: using plain text password")
 	return func(username, password string) bool {
 		return username == euser && password == epass
 	}

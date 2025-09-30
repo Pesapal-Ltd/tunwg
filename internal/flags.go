@@ -33,7 +33,7 @@ func ApiDomain() string {
 	if domain := os.Getenv("TUNWG_API"); domain != "" {
 		return domain
 	}
-	return "l.tunwg.com"
+	return "tunwg.pesapal.com"
 }
 
 func AuthKey() string {

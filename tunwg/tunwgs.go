@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -21,6 +20,7 @@ import (
 	"time"
 
 	"tunwg/internal"
+	"tunwg/log"
 
 	"github.com/inetaf/tcpproxy"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -29,29 +29,29 @@ import (
 func tunwgServer() {
 	flag.Parse()
 	if internal.GetListenPort() <= 0 {
-		log.Fatalf("TUNWG_PORT needs to be set")
+		log.LogFatal("TUNWG_PORT needs to be set")
 	} else if internal.ServerIp() == "" {
-		log.Fatalf("TUNWG_IP needs to be set")
+		log.LogFatal("TUNWG_IP needs to be set")
 	}
 	if err := internal.Initialize(); err != nil {
-		log.Fatalf("failed to initialize: %v", err)
+		log.LogFatal(fmt.Sprintf("failed to initialize: %v", err))
 	}
 	l443 := &tcpproxy.TargetListener{Address: "https"}
 	go func() {
 		if err := http.Serve(tls.NewListener(l443, internal.GetTLSConfig()), apiMux()); err != nil {
-			log.Fatalf("failed to serve api: %v", err)
+			log.LogFatal(fmt.Sprintf("failed to serve api: %v", err))
 		}
 	}()
 	l80 := &tcpproxy.TargetListener{Address: "http"}
 	go func() {
 		if err := http.Serve(l80, sslRedirect()); err != nil {
-			log.Fatalf("failed to serve redirect handler: %v", err)
+			log.LogFatal(fmt.Sprintf("failed to serve redirect handler: %v", err))
 		}
 	}()
 	go globalPersist.loadFromDisk()
 	go globalPersist.backgroundWriter(time.Minute)
 	go internal.BackgroundLogger(10 * time.Second)
-	log.Fatalf("failed to run: %v", runSniProxy(l80, l443))
+	log.LogFatal(fmt.Sprintf("failed to run: %v", runSniProxy(l80, l443)))
 }
 
 func allowUserKey(key wgtypes.Key, endpoint string) error {
@@ -71,7 +71,7 @@ func sslRedirect() *http.ServeMux {
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			ipport, err := getIPForDomain(pr.In.Host)
 			if err != nil {
-				log.Printf("unable to find host: %v", pr.In.Host)
+				log.LogInfo(fmt.Sprintf("unable to find host: %v", pr.In.Host))
 				return
 			}
 			newPort := netip.AddrPortFrom(ipport.Addr(), 80)
@@ -144,17 +144,17 @@ func apiMux() *http.ServeMux {
 		w.WriteHeader(http.StatusSwitchingProtocols)
 		conn, _, err := h.Hijack()
 		if err != nil {
-			log.Printf("hijack error: %v", err)
+			log.LogInfo(fmt.Sprintf("hijack error: %v", err))
 			return
 		}
 		defer conn.Close()
 		udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 		if err != nil {
-			log.Printf("relay listen error: %v", err)
+			log.LogError("relay listen error", err)
 			return
 		}
 		if err := internal.RelayServer(conn, udpConn, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: internal.GetListenPort()}); err != nil && !errors.Is(err, io.EOF) {
-			log.Printf("relay error: %v", err)
+			log.LogError("relay error", err)
 		}
 	})
 	return mux
@@ -165,10 +165,10 @@ func runSniProxy(l80, l443 *tcpproxy.TargetListener) error {
 	proxy.AddRoute(":80", l80)
 	proxy.AddSNIRoute(":443", internal.ApiDomain(), l443)
 	proxy.AddSNIRouteFunc(":443", func(ctx context.Context, sniName string) (tcpproxy.Target, bool) {
-		log.Printf("received request for: %v", sniName)
+		log.LogInfo(fmt.Sprintf("received request for: %v", sniName))
 		addr, err := getIPForDomain(sniName)
 		if err != nil {
-			log.Printf("dispatch error: %v", err)
+			log.LogError("dispatch error", err)
 			return nil, false
 		}
 		return &tcpproxy.DialProxy{
@@ -188,7 +188,7 @@ func getIPForDomain(sniName string) (*netip.AddrPort, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to lookup cname %v: %v", sniName, err)
 		}
-		log.Printf("got cname: %v", cname)
+		log.LogInfo("got cname " + cname)
 		// CNAME can contain a dot the end
 		cname, _ = strings.CutSuffix(cname, ".")
 		encodedIP, matched = strings.CutSuffix(cname, "."+internal.ApiDomain())
@@ -226,9 +226,9 @@ func (p *persistPeers) backgroundWriter(d time.Duration) {
 		if !p.dirty.Swap(false) && time.Since(lastWritten) < 15*time.Minute {
 			continue
 		}
-		log.Println("writing peers to disk")
+		log.LogInfo("writing peers to disk")
 		if err := p.writeToDisk(); err != nil {
-			log.Printf("error writing peers: %v", err)
+			log.LogError("error writing peers", err)
 		}
 		lastWritten = time.Now()
 	}
@@ -248,7 +248,7 @@ func (p *persistPeers) writeToDisk() error {
 			}
 		}
 	}
-	log.Printf("peers to write: %+v", p.peers)
+	log.LogInfo(fmt.Sprintf("peers to write: %+v", p.peers))
 	data, err := json.Marshal(p.peers)
 	if err != nil {
 		return err
@@ -261,22 +261,22 @@ func (p *persistPeers) loadFromDisk() {
 	p.peers = make(map[string]struct{ Endpoint string })
 	data, err := os.ReadFile(filepath.Join(internal.Keystorage(), "server/peers.json"))
 	if err != nil {
-		log.Printf("error reading file: %v", err)
+		log.LogError("error reading file", err)
 		return
 	}
 	if err := json.Unmarshal(data, &p.peers); err != nil {
-		log.Printf("error unmarshaling: %v", err)
+		log.LogError("error unmarshaling", err)
 		return
 	}
 	for k, v := range p.peers {
 		key, err := wgtypes.ParseKey(k)
 		if err != nil {
-			log.Printf("error parsing key: %v", err)
+			log.LogError("error parsing key", err)
 			continue
 		}
 		// TODO: these writes could be combined to one IPC operation
 		if err := allowUserKey(key, v.Endpoint); err != nil {
-			log.Printf("error allowing user: %v", err)
+			log.LogError("error allowing user", err)
 		}
 	}
 }
